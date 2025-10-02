@@ -11,7 +11,7 @@
 
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import { useCreateBlockNote } from "@blocknote/react";
@@ -54,6 +54,9 @@ export const ProjectCard = createReactBlockSpec(
       coverImage: {
         default: "", // Default to no cover image
       },
+      nestedContent: {
+        default: "", // Stores serialized nested editor content as JSON string
+      },
     },
   },
   // --------------------------------------------------------------------------
@@ -77,29 +80,109 @@ export const ProjectCard = createReactBlockSpec(
       // Track whether the modal is open or closed
       const [open, setOpen] = useState(false);
 
+      // Use ref to track if we're currently updating to prevent recursive updates
+      const isUpdatingRef = useRef(false);
+
       // ----------------------------------------------------------------------
-      // Nested Editor Setup
+      // Nested Editor Setup with Persistence
       // ----------------------------------------------------------------------
       /**
-       * Create a nested BlockNote editor for the modal.
-       * This editor is independent from the parent editor and allows users
-       * to write detailed project information using all BlockNote features.
+       * Parse nested content from block props, or use default initial content.
+       * The content is stored as a JSON string in block.props.nestedContent.
        *
-       * NOTE: The editor is created on every render. In production, consider
-       * memoizing this or storing content in block props to persist data.
+       * This function safely parses the content and validates it's an array.
        */
-      const nestedEditor = useCreateBlockNote({
-        initialContent: [
-          {
-            type: "heading",
-            content: block.props.title || "Project Title",
-          },
-          {
-            type: "paragraph",
-            content: "Start writing project details here...",
-          },
-        ],
-      });
+      const getInitialNestedContent = () => {
+        if (
+          block.props.nestedContent &&
+          block.props.nestedContent.trim() !== ""
+        ) {
+          try {
+            const parsed = JSON.parse(block.props.nestedContent);
+
+            // Validate it's an array and not empty
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              return parsed;
+            } else {
+              console.warn(
+                "⚠️ Nested content is not a valid array, using default"
+              );
+              return getDefaultNestedContent(block.props.title);
+            }
+          } catch (e) {
+            console.error("Failed to parse nested content:", e);
+            return getDefaultNestedContent(block.props.title);
+          }
+        }
+        return getDefaultNestedContent(block.props.title);
+      };
+
+      /**
+       * Create a nested BlockNote editor for the modal.
+       * Only create the editor when modal is open to avoid stale state issues.
+       */
+      const nestedEditor = useCreateBlockNote(
+        open
+          ? {
+              initialContent: getInitialNestedContent(),
+            }
+          : undefined
+      );
+
+      /**
+       * Sync nested editor changes back to parent editor's block props.
+       * This enables content persistence across page reloads.
+       * Uses a ref to prevent infinite update loops.
+       */
+      useEffect(() => {
+        if (!nestedEditor || !open) return;
+
+        const unsubscribe = nestedEditor.onChange(() => {
+          // Prevent recursive updates
+          if (isUpdatingRef.current) return;
+
+          isUpdatingRef.current = true;
+
+          try {
+            const document = nestedEditor.document;
+
+            // Extract title from first heading (if exists)
+            const firstBlock = document[0];
+            const newTitle =
+              firstBlock?.type === "heading" && firstBlock.content
+                ? extractTextContent(firstBlock.content)
+                : block.props.title;
+
+            // Find first image for cover
+            const newCoverImage = findFirstImage(document);
+
+            // Serialize document to JSON string
+            const serializedContent = JSON.stringify(document);
+
+            // Update parent block props with new data
+            editor.updateBlock(block, {
+              props: {
+                title: newTitle || "New Project",
+                coverImage: newCoverImage || block.props.coverImage,
+                nestedContent: serializedContent,
+              },
+            });
+          } catch (e) {
+            console.error("Failed to sync nested editor content:", e);
+          } finally {
+            // Reset the flag after a short delay to allow the update to complete
+            setTimeout(() => {
+              isUpdatingRef.current = false;
+            }, 100);
+          }
+        });
+
+        return () => {
+          if (unsubscribe) {
+            unsubscribe();
+          }
+        };
+      }, [nestedEditor, editor, block, open]);
 
       // ----------------------------------------------------------------------
       // Component Render
@@ -164,7 +247,13 @@ export const ProjectCard = createReactBlockSpec(
                 {/* Modal Body - Nested Editor */}
                 <div className="flex-1 overflow-auto p-4">
                   {/* Nested BlockNote editor with full functionality */}
-                  <BlockNoteView editor={nestedEditor} theme="light" />
+                  {nestedEditor ? (
+                    <BlockNoteView editor={nestedEditor} theme="light" />
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <p className="text-gray-500">Loading editor...</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -178,6 +267,51 @@ export const ProjectCard = createReactBlockSpec(
 // ============================================================================
 // Helper Functions
 // ============================================================================
+
+/**
+ * Returns default nested editor content structure.
+ *
+ * @param {string} title - The project title to use in the heading
+ * @returns {any[]} Array of BlockNote blocks for initial content
+ */
+function getDefaultNestedContent(title: string): any[] {
+  return [
+    {
+      type: "heading",
+      content: title || "Project Title",
+    },
+    {
+      type: "paragraph",
+      content: "Start writing project details here...",
+    },
+  ];
+}
+
+/**
+ * Extracts plain text content from BlockNote inline content.
+ *
+ * BlockNote stores text as inline content objects. This function
+ * recursively extracts the text strings.
+ *
+ * @param {any} content - BlockNote inline content (string or array)
+ * @returns {string} Extracted text content
+ */
+function extractTextContent(content: any): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item.type === "text" && item.text) return item.text;
+        if (item.content) return extractTextContent(item.content);
+        return "";
+      })
+      .join("");
+  }
+  return "";
+}
 
 /**
  * Recursively searches through a BlockNote document structure to find the
@@ -196,9 +330,6 @@ export const ProjectCard = createReactBlockSpec(
  *   { type: "image", props: { url: "cover.jpg" } }
  * ];
  * findFirstImage(doc); // Returns "cover.jpg"
- *
- * @note Currently unused but kept for potential future feature:
- *       Auto-extracting cover images from nested editor content
  */
 function findFirstImage(doc: any[]): string {
   // Iterate through each block in the document
