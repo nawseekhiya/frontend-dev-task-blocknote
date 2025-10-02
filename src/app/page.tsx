@@ -32,7 +32,7 @@ export default function Home() {
         <div className="grid md:grid-cols-2 gap-8 mb-12">
           <div className="bg-white p-6 rounded-lg shadow-sm border">
             <h2 className="text-xl font-semibold text-gray-900 mb-3">
-              🚀 What's Included
+              🚀 What&apos;s Included
             </h2>
             <ul className="space-y-2 text-gray-600">
               <li>• Basic BlockNote editor with default blocks</li>

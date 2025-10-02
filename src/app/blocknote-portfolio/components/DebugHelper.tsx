@@ -50,7 +50,7 @@ export function DebugHelper() {
         🗑️ Clear Storage & Reload
       </button>
       <p className="text-xs text-yellow-700 mt-2">
-        Use this if you see "Cannot read properties of undefined" error
+        Use this if you see &quot;Cannot read properties of undefined&quot; error
       </p>
     </div>
   );
