@@ -73,7 +73,7 @@ export const ProjectCard = createReactBlockSpec(
      * @param {Object} params.editor - The parent BlockNote editor instance
      * @returns {JSX.Element} The rendered block component
      */
-    render: ({ block, editor }) => {
+    render: function Render({ block, editor }) {
       // ----------------------------------------------------------------------
       // State Management
       // ----------------------------------------------------------------------
