@@ -51,6 +51,9 @@ export const ProjectCard = createReactBlockSpec(
       title: {
         default: "New Project", // Default title for new project cards
       },
+      subtext: {
+        default: "Project description", // Default subtext/description
+      },
       coverImage: {
         default: "", // Default to no cover image
       },
@@ -79,6 +82,19 @@ export const ProjectCard = createReactBlockSpec(
       // ----------------------------------------------------------------------
       // Track whether the modal is open or closed
       const [open, setOpen] = useState(false);
+
+      // Track whether we're in edit mode for title/subtext (card view)
+      const [isEditing, setIsEditing] = useState(false);
+
+      // Track whether we're in edit mode for title in modal
+      const [isEditingModalTitle, setIsEditingModalTitle] = useState(false);
+
+      // Local state for editing title and subtext
+      const [editTitle, setEditTitle] = useState(block.props.title);
+      const [editSubtext, setEditSubtext] = useState(block.props.subtext);
+
+      // Local state for editing title in modal
+      const [editModalTitle, setEditModalTitle] = useState(block.props.title);
 
       // Use ref to track if we're currently updating to prevent recursive updates
       const isUpdatingRef = useRef(false);
@@ -146,23 +162,17 @@ export const ProjectCard = createReactBlockSpec(
           try {
             const document = nestedEditor.document;
 
-            // Extract title from first heading (if exists)
-            const firstBlock = document[0];
-            const newTitle =
-              firstBlock?.type === "heading" && firstBlock.content
-                ? extractTextContent(firstBlock.content)
-                : block.props.title;
-
-            // Find first image for cover
+            // Find first image for cover (update cover image automatically)
             const newCoverImage = findFirstImage(document);
 
             // Serialize document to JSON string
             const serializedContent = JSON.stringify(document);
 
             // Update parent block props with new data
+            // Note: We keep the existing title and subtext as they are manually editable
+            // Only update the nested content and cover image automatically
             editor.updateBlock(block, {
               props: {
-                title: newTitle || "New Project",
                 coverImage: newCoverImage || block.props.coverImage,
                 nestedContent: serializedContent,
               },
@@ -185,6 +195,88 @@ export const ProjectCard = createReactBlockSpec(
       }, [nestedEditor, editor, block, open]);
 
       // ----------------------------------------------------------------------
+      // Handler Functions
+      // ----------------------------------------------------------------------
+
+      /**
+       * Handle card click - open modal only if not in edit mode
+       */
+      const handleCardClick = () => {
+        if (!isEditing) {
+          setOpen(true);
+        }
+      };
+
+      /**
+       * Save edited title and subtext
+       */
+      const handleSaveEdit = () => {
+        editor.updateBlock(block, {
+          props: {
+            title: editTitle || "New Project",
+            subtext: editSubtext || "Project description",
+          },
+        });
+        setIsEditing(false);
+      };
+
+      /**
+       * Cancel editing and revert to original values
+       */
+      const handleCancelEdit = () => {
+        setEditTitle(block.props.title);
+        setEditSubtext(block.props.subtext);
+        setIsEditing(false);
+      };
+
+      /**
+       * Enter edit mode
+       */
+      const handleEditClick = (e: React.MouseEvent) => {
+        e.stopPropagation(); // Prevent card click
+        setIsEditing(true);
+      };
+
+      /**
+       * Enter edit mode for modal title
+       */
+      const handleEditModalTitle = () => {
+        setEditModalTitle(block.props.title);
+        setIsEditingModalTitle(true);
+      };
+
+      /**
+       * Save edited modal title
+       */
+      const handleSaveModalTitle = () => {
+        editor.updateBlock(block, {
+          props: {
+            title: editModalTitle || "New Project",
+          },
+        });
+        setIsEditingModalTitle(false);
+      };
+
+      /**
+       * Cancel editing modal title and revert to original value
+       */
+      const handleCancelModalTitle = () => {
+        setEditModalTitle(block.props.title);
+        setIsEditingModalTitle(false);
+      };
+
+      /**
+       * Handle Enter key to save modal title
+       */
+      const handleModalTitleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === "Enter") {
+          handleSaveModalTitle();
+        } else if (e.key === "Escape") {
+          handleCancelModalTitle();
+        }
+      };
+
+      // ----------------------------------------------------------------------
       // Component Render
       // ----------------------------------------------------------------------
       return (
@@ -196,9 +288,21 @@ export const ProjectCard = createReactBlockSpec(
                Clicking anywhere on the card opens the modal for editing.
           */}
           <div
-            className="border rounded-lg shadow-md p-4 cursor-pointer hover:shadow-lg transition"
-            onClick={() => setOpen(true)}
+            className="border rounded-lg shadow-md p-4 cursor-pointer hover:shadow-lg transition relative"
+            onClick={handleCardClick}
           >
+            {/* Edit Button - Top Right Corner */}
+            {!isEditing && (
+              <button
+                onClick={handleEditClick}
+                className="absolute top-2 right-2 bg-white rounded-full p-2 shadow-md hover:bg-gray-100 transition z-10"
+                aria-label="Edit title and description"
+                title="Edit title and description"
+              >
+                ✏️
+              </button>
+            )}
+
             {/* Cover Image or Placeholder */}
             {block.props.coverImage ? (
               <img
@@ -213,8 +317,49 @@ export const ProjectCard = createReactBlockSpec(
               </div>
             )}
 
-            {/* Project Title */}
-            <h3 className="text-lg font-semibold">{block.props.title}</h3>
+            {/* Editable Title and Subtext */}
+            {isEditing ? (
+              <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full text-lg font-semibold border rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Project title"
+                  autoFocus
+                />
+                <input
+                  type="text"
+                  value={editSubtext}
+                  onChange={(e) => setEditSubtext(e.target.value)}
+                  className="w-full text-sm text-gray-600 border rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Project description"
+                />
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={handleSaveEdit}
+                    className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={handleCancelEdit}
+                    className="px-3 py-1 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Project Title */}
+                <h3 className="text-lg font-semibold">{block.props.title}</h3>
+                {/* Project Subtext */}
+                <p className="text-sm text-gray-600 mt-1">
+                  {block.props.subtext}
+                </p>
+              </>
+            )}
           </div>
 
           {/* ==============================================================
@@ -233,11 +378,52 @@ export const ProjectCard = createReactBlockSpec(
               <div className="bg-white rounded-lg shadow-lg w-[90%] h-[90%] flex flex-col">
                 {/* Modal Header */}
                 <div className="flex justify-between items-center border-b p-4">
-                  <h2 className="text-xl font-semibold">{block.props.title}</h2>
+                  {/* Editable Title in Modal */}
+                  {isEditingModalTitle ? (
+                    <div className="flex items-center gap-2 flex-1">
+                      <input
+                        type="text"
+                        value={editModalTitle}
+                        onChange={(e) => setEditModalTitle(e.target.value)}
+                        onKeyDown={handleModalTitleKeyDown}
+                        className="flex-1 text-xl font-semibold border rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Project title"
+                        autoFocus
+                      />
+                      <button
+                        onClick={handleSaveModalTitle}
+                        className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+                        title="Save title"
+                      >
+                        ✓
+                      </button>
+                      <button
+                        onClick={handleCancelModalTitle}
+                        className="px-3 py-1 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 text-sm"
+                        title="Cancel"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 flex-1">
+                      <h2 className="text-xl font-semibold">
+                        {block.props.title}
+                      </h2>
+                      <button
+                        onClick={handleEditModalTitle}
+                        className="text-gray-500 hover:text-gray-700 p-1"
+                        aria-label="Edit project title"
+                        title="Edit project title"
+                      >
+                        ✏️
+                      </button>
+                    </div>
+                  )}
                   {/* Close Button */}
                   <button
                     onClick={() => setOpen(false)}
-                    className="text-gray-500 hover:text-black"
+                    className="text-gray-500 hover:text-black ml-4"
                     aria-label="Close modal"
                   >
                     ✕
